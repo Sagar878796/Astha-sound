@@ -1,40 +1,54 @@
 const express = require("express");
-const { exec } = require("child_process");
-const fs = require("fs");
+const { spawn } = require("child_process");
 
 const app = express();
-const PORT = 3000;
 
-// 🔗 Input IPTV
-const SOURCE = "https://iptv-org.github.io/iptv/index.m3u";
+app.get("/", (req, res) => {
+    res.send("Audio Fix Server Running ✅");
+});
 
-// 📂 Output
-const OUTPUT = "public/output.m3u8";
+app.get("/play", (req, res) => {
+    const input = req.query.url;
 
-app.use(express.static("public"));
+    if (!input) return res.send("Missing URL");
 
-// 🔥 Run FFmpeg every 5 minutes
-setInterval(() => {
-    console.log("Running FFmpeg...");
+    res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
 
-    const cmd = `
-    ffmpeg -y -i "${SOURCE}" \
-    -c:v copy \
-    -c:a aac -b:a 128k \
-    -f hls \
-    -hls_time 10 \
-    -hls_list_size 5 \
-    -hls_flags delete_segments \
-    public/output.m3u8
-    `;
+    const ffmpeg = spawn("ffmpeg", [
+        "-re",
+        "-i", input,
 
-    exec(cmd, (err) => {
-        if (err) console.log("FFmpeg error:", err);
-        else console.log("Stream updated!");
+        "-c:v", "copy",
+
+        // 🔊 AUDIO FIX
+        "-c:a", "aac",
+        "-b:a", "128k",
+        "-ac", "2",
+        "-ar", "44100",
+
+        "-preset", "veryfast",
+        "-tune", "zerolatency",
+
+        "-f", "hls",
+        "-hls_time", "6",
+        "-hls_list_size", "5",
+        "-hls_flags", "delete_segments",
+
+        "pipe:1"
+    ]);
+
+    ffmpeg.stdout.pipe(res);
+
+    ffmpeg.stderr.on("data", (data) => {
+        console.log(data.toString());
     });
 
-}, 300000); // 5 min
+    ffmpeg.on("close", () => {
+        res.end();
+    });
+});
 
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log("Server running on port", PORT);
+    console.log("Server running on port " + PORT);
 });
